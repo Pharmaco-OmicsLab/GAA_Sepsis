@@ -1,16 +1,16 @@
 # Exploring the Effects of Glucogenic Amino Acids on the Multiomic Landscape of Sepsis
 
-This repository contains additional code related to omics data analysis in the paper: **Regulation of glycolysis via carbohydrates and glucogenic amino acids supply to enhance host defense against neonatal bacterial infection**. Published in ***Journal***. DOI: [https://doi.org/xxxx](https://doi.org/xxxx).
+This repository contains the R scripts used for the omics data analysis of the article: **Regulation of glycolysis via carbohydrates and glucogenic amino acids supply to enhance host defense against neonatal bacterial infection**. The article is published in ***Journal***. DOI: [https://doi.org/xxxx](https://doi.org/xxxx).
 
-The code is maintained by [Pharmaco-Omics Lab](https://pharmomicslab.site/) in the collaboration with [Cellular and Molecular Pediatrics (CMP) Lab](https://ivh.ku.dk/english/research/comparative-pediatrics-and-nutrition/cellular-and-molecular-pediatrics/).
+[Pharmaco-Omics Lab](https://pharmomicslab.site/) maintains the repository in collaboration with the [Cellular and Molecular Pediatrics (CMP) Lab](https://ivh.ku.dk/english/research/comparative-pediatrics-and-nutrition/cellular-and-molecular-pediatrics/).
 
 Transcriptomics data: GEO accession GSE263512 ([link](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE263512)). Metabolomics data: Available from the supplementary data of the article ([link](https://doi.org/xxxx)).
 
 Note:
 
-  - The transcriptomics folder contains code for data inspection, gene differential expression analysis, and pathway analysis. The pipeline has been adapted mainly based on the [`DESeq2`](https://www.bioconductor.org/packages/release/bioc/vignettes/DESeq2/inst/doc/DESeq2.html) [^1], [^2], and [`clusterProfiler`](https://yulab-smu.top/biomedical-knowledge-mining-book/)[^3] packages.
+  - The transcriptomics folder contains code for data processing, differential expression analysis, and pathway analysis. The pipeline has been developed and customized mainly based on [`DESeq2`](https://www.bioconductor.org/packages/release/bioc/vignettes/DESeq2/inst/doc/DESeq2.html) [^1], [^2], and [`clusterProfiler`](https://yulab-smu.top/biomedical-knowledge-mining-book/)[^3] packages.
 
-  - The metabolomics folder includes code associated with PCA, fold change, statistical analysis, and differential metabolites-based pathway analysis. The code has been adapted mainly based on [`MetaboAnalystR`](https://www.metaboanalyst.ca/docs/RTutorial.xhtml)[^4] packages.
+  - The metabolomics folder includes code associated with data integrity check, data treatment and normalization, exploratory data analysis, differential analysis, and pathway analysis. The code has been developed and customized mainly based on [`MetaboAnalystR`](https://www.metaboanalyst.ca/docs/RTutorial.xhtml)[^4] packages.
 
 ## Contact Information
 
