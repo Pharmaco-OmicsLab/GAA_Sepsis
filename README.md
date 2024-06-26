@@ -1,33 +1,13 @@
 # Exploring the Effects of Glucogenic Amino Acids on the Multiomic Landscape of Sepsis
 
-This repository contains additional code related to omics data analysis in the paper: **Regulation of glycolysis via carbohydrates and glucogenic amino acids supply to enhance host defense against neonatal bacterial infection.**, published in ***Journal***. DOI: [https://doi.org/xxxx](https://doi.org/xxxx).
+This repository contains additional code related to omics data analysis in the paper: **Regulation of glycolysis via carbohydrates and glucogenic amino acids supply to enhance host defense against neonatal bacterial infection**. Published in ***Journal***. DOI: [https://doi.org/xxxx](https://doi.org/xxxx).
 
 The code is maintained by [Pharmaco-Omics Lab](https://pharmomicslab.site/) in the collaboration with [Cellular and Molecular Pediatrics (CMP) Lab](https://ivh.ku.dk/english/research/comparative-pediatrics-and-nutrition/cellular-and-molecular-pediatrics/).
 
-Raw transcriptomics was shared in GEO at [GSE263512](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE263512). Metabolomics was shared as normalized data in the [paper's supplementary files](https://doi.org/xxxx).
+Transcriptomics data: GEO accession GSE263512 [link](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE263512). Metabolomics data: Available from the supplementary data of the article [link](https://doi.org/xxxx).
 
-## Table of Contents
+Note:
 
-- [Repository Structure](#repository-structure)
-- [Contact Information](#contact-information)
-- [License](#license)
-- [Citation](#citation)
-
-
-## Repository Structure
-
-The repository is organized according to experiments. 
-
-- **`Exp1/`**: <ins>Galactose versus Glucose in Sepsis Control</ins>
-  - **`liver_transcriptomics/`**
-- **`Exp2SE/`**
-  - **`liver_transcriptomics/`**
-  - **`liver_metabolomics/`**
-  - **`plasma_metabolomics/`**
-- **`Exp3SE/`**
-  - **`liver_transcriptomics/`**
-  - **`plasma_metabolomics/`**
-- Note:
   - The transcriptomics folder contains code for data inspection, gene differential expression analysis, and pathway analysis. The pipeline has been adapted mainly based on the [`DESeq2`](https://www.bioconductor.org/packages/release/bioc/vignettes/DESeq2/inst/doc/DESeq2.html) [^1], [^2], and [`clusterProfiler`](https://yulab-smu.top/biomedical-knowledge-mining-book/)[^3] packages.
 
   - The metabolomics folder includes code associated with PCA, fold change, statistical analysis, and differential metabolites-based pathway analysis. The code has been adapted mainly based on [`MetaboAnalystR`](https://www.metaboanalyst.ca/docs/RTutorial.xhtml)[^4] packages.
@@ -55,7 +35,7 @@ This repository is licensed under the [MIT License](LICENSE).
 
 If you use any part of this repository, please cite the following paper:
 
-**Authors**. (Year). Title. *Journal Name*. DOI: [Link to the paper](https://doi.org/xxxx).
+**Authors**. (Year). **Regulation of glycolysis via carbohydrates and glucogenic amino acids supply to enhance host defense against neonatal bacterial infection.** *Journal Name*. DOI: [Link to the paper](https://doi.org/xxxx).
 
 ```bibtex
 @article{yourcitationkey,
