@@ -4,7 +4,7 @@ This repository contains additional code related to omics data analysis in the p
 
 The code is maintained by [Pharmaco-Omics Lab](https://pharmomicslab.site/) in the collaboration with [Cellular and Molecular Pediatrics (CMP) Lab](https://ivh.ku.dk/english/research/comparative-pediatrics-and-nutrition/cellular-and-molecular-pediatrics/).
 
-Transcriptomics data: GEO accession GSE263512 [link](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE263512). Metabolomics data: Available from the supplementary data of the article [link](https://doi.org/xxxx).
+Transcriptomics data: GEO accession GSE263512 ([link](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE263512)). Metabolomics data: Available from the supplementary data of the article ([link](https://doi.org/xxxx)).
 
 Note:
 
