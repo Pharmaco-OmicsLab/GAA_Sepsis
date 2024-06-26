@@ -1,0 +1,341 @@
+---
+title: "The interplay between glucogenic amino acids and carbohydrate metabolisms in regulating the clinical fate of infected preterm newborns"
+subtitle: "Plasma metabolomics - Statistical analysis"
+author: 
+- "Person in Charge: Ziyuan WU, Nguyen Tran Nam Tien, Nguyen Thi Hai Yen"
+- "Supervisor: Duc Ninh Nguyen, Nguyen Phuoc Long"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  bookdown::pdf_document2:
+   includes:
+    in_header: "wrap-code.tex"
+   keep_tex: true
+   number_sections: true
+   toc: true
+---
+
+<style type="text/css">
+
+body{
+  font-family: Arial;
+  font-size: 12pt;
+}
+code.r{
+  font-family: FiraCode;
+  font-size: 14px;
+}
+pre {
+  font-size: 13px
+}
+</style>
+
+```{r setup, include=FALSE, fig.align='center',tidy=TRUE}
+# SET UP CODE CHUNK FOR REPORTING PURPOSE
+
+knitr::opts_chunk$set(echo = TRUE)
+
+# Remove all R objects in the environment first
+rm(list=ls())
+
+# Wrap output
+library(knitr)
+hook_output = knit_hooks$get("output")
+knit_hooks$set(output = function(x, options) {
+    # this hook is used only when the linewidth option is not NULL
+    if (!is.null(n <- options$linewidth)) {
+        x = xfun::split_lines(x)
+        # any lines wider than n should be wrapped
+        if (any(nchar(x) > n))
+            x = strwrap(x, width = n)
+        x = paste(x, collapse = "\n")
+    }
+    hook_output(x, options)
+})
+
+# Table reporting
+show_table = function(df, show_rowname = TRUE){
+  library(DT) 
+  
+  df %>% datatable(
+    class = 'cell-border stripe', filter = 'top',
+    extensions = list('Scroller' = NULL, 'Buttons' = NULL),
+    options = list(
+      deferRender = TRUE,
+      scrollY = 300,
+      scrollX = TRUE,
+      dom = 'Bfrtip', buttons = c('colvis', 'excel', 'csv', 'pdf', 'copy'),
+       initComplete = JS(
+        "function(settings, json) {",
+        "$(this.api().table().body()).css({'font-size': '80%'});",
+        "}")
+    ),
+    rownames = show_rowname
+  )
+}
+
+# Another one of table reporting
+knitr_table = function(df, caption = ""){
+  library(kableExtra)
+  
+  if (caption == "") {
+    df %>% kbl() %>% kable_paper(bootstrap_options = "striped", full_width = F, html_font = "Arial")
+  } else {
+    df %>% kbl(caption = caption) %>% kable_paper(bootstrap_options = "striped", full_width = F, html_font = "Arial")
+  }
+}
+
+# Insert image
+insert_image = function(dir, image_name){
+  knitr::include_graphics(
+    base::paste(
+      dir, "/",
+      image_name,
+      sep = ""
+    )
+  )
+}
+
+# Define time to export the data
+exported_time = "240502"
+```
+
+# Call packages
+```{r warning=FALSE,message=FALSE}
+# Data wrangling
+library(tidyverse)
+library(openxlsx)
+
+# Metabolomics data analysis
+library(MetaboAnalystR)
+
+# Statistical analysis
+library(lme4)
+library(multcomp)
+library(multtest)
+
+`%!in%` = Negate(`%in%`)
+```
+
+# Note
+- Check the `MetaboAnalystR` version (see `sessionInfo()` section). However, it should be noted that even with the same `MetaboAnalystR` and `R` versions, the code might not work. This might be due to the day of installation. Thus, when the code does not work, please find 4 below lines in this code and remove them, then use the next line (have a comment with the note: new updated function) for these lines.
+  + `mSet <- FilterVariable(mSet, "iqr", IQR_cut_off, "T", QC_RSD, F)` (3 lines from PCA, PLS_DA, and linear model function)
+  + `mSet <- FilterVariable(mSet, "iqr", IQR_cut_off, "F", QC_RSD, F)` (in linear model function)
+  
+# Get group label
+- Code to obtain groups levels.
+```{r}
+Get_group_level = function(dir, filename){
+  
+  library(MetaboAnalystR)
+  library(tidyverse)
+  #Set working directory
+  setwd(dir)
+  file_path = paste(dir, filename, sep = "/")
+  
+  mSet <- InitDataObjects("pktable", "stat", FALSE)
+  mSet <- Read.TextData(
+    mSet, 
+    file_path, 
+    "colu", "disc"
+  )
+  
+  mSet$dataSet$cls %>% unique() -> group_level
+  
+  return(group_level)
+}
+```
+
+- Get group label. 
+```{r}
+feature.nm.vec <- c("")
+smpl.nm.vec <- c("")
+# Note: this need in order levels when read the data
+group_order = Get_group_level(
+  dir = "../2lmer",
+  filename = "2Merged_annotated_POS_NEG_Exp2SE.csv"
+)
+grp.nm.vec <- group_order
+```
+
+- Should check our group label.
+```{r}
+group_order
+```
+
+# Data treatment and normalization
+## Define function
+```{r}
+data_treatment_lmer = function(dir, filename, 
+                               time = as.character(format(Sys.time(), "%Y%m%d")), 
+                               QC_RSD = 25, IQR_cut_off = 0,
+                               norm_method = "MedianNorm", trans_method = "LogNorm", scale_method = "ParetoNorm",
+                               show_label = 0){
+  
+  library(MetaboAnalystR)
+  #Set working directory
+  setwd(dir)
+  file_path = paste(dir, filename, sep = "/")
+  
+  # Initiate object
+  mSet <- InitDataObjects("pktable", "stat", FALSE)
+  # Read data
+  mSet <- Read.TextData(
+    mSet, 
+    file_path, 
+    "colu", "disc"
+  )
+  
+  # Check data set as well as NA
+  mSet <- SanityCheckData(mSet)
+  
+  # Data Treatment
+  ## NA values remove
+  mSet <- RemoveMissingPercent(mSet, percent = 0.5)
+  ## NA values imputation
+  mSet <- ImputeMissingVar(mSet, method = "knn_var")
+  
+  mSet <- SanityCheckData(mSet)
+
+  ## QCs repeatability check by threshold of 25%
+  mSet <- FilterVariable(mSet, "iqr", IQR_cut_off, "T", QC_RSD, F)   # old version, laptop
+  # mSet <- FilterVariable(mSetObj = mSet, qc.filter = "T", rsd = QC_RSD, var.filter = "iqr", var.cutoff = IQR_cut_off)  # new updated function, workstation
+  
+  ## Decide to retain or remove any groups, note: remove/retain need to be done outside the function
+  ### Remove QCs before normalization
+  mSet <- GetGroupNames(mSet, "")
+  feature.nm.vec <- c("")
+  smpl.nm.vec <- c("")
+  grp.nm.vec <- c("")
+  mSet <- UpdateData(mSet)
+  
+  ## Normalize for statistical analysis
+  mSet <- PreparePrenormData(mSet)
+  mSet <- Normalization(mSet, norm_method, trans_method, scale_method, ratio = FALSE, ratioNum = 20)
+  mSet <- PlotNormSummary(mSet, "norm_0_", "png", 300, width=NA)
+  mSet <- PlotSampleNormSummary(mSet, "snorm_0_", "png", 300, width=NA)
+
+  # Save data sets
+  mSet <- SaveTransformedData(mSet)
+}
+```
+
+## Treat and normalize data
+- Use `data_normalized.csv` as input of statistical analysis.
+```{r linewidth=100}
+feature.nm.vec <- c("")
+smpl.nm.vec <- c("")
+# Retain (i.e., wo QC)
+grp.nm.vec <- group_order[c(2:3)]
+
+data_treatment_lmer(
+  dir = "../2lmer",
+  filename = "2Merged_annotated_POS_NEG_Exp2SE.csv",
+  QC_RSD = 25, IQR_cut_off = 0,
+  norm_method = "MedianNorm", trans_method = "LogNorm", scale_method = "NULL"
+)
+```
+
+- Standardize data format for `lmer`.
+```{r}
+# Read normalized data
+normalized_data = read.csv(
+  "../2lmer/data_normalized.csv",
+  row.names = 1
+) %>% 
+  # remove Label
+  dplyr::slice(-1) %>% 
+  # Convert to nummeric
+  mutate_if(is.character, as.numeric)
+  
+
+# Read metadata
+metadata = read.csv(
+  "../2lmer/0GAA_metadata_Exp2SE.csv"
+)
+
+# Merge the 2 above data to Standardize data format for `lmer` [samples in row].
+metadata %>% 
+  inner_join(
+    t(normalized_data) %>% as.data.frame() %>% 
+      rownames_to_column(var = "Sample"),
+    by = join_by(Sample)
+  ) -> lmer_input
+
+# Export
+write.csv(
+  lmer_input,
+  "../2lmer/_lmer_input.csv",
+  row.names = FALSE
+)
+```
+
+# MDAs by `lmer` function
+## P-Value calculation
+```{r warning=FALSE,message=FALSE}
+# Loop for linear mixed model
+end.glht <- function(x){
+  t1 <- with(lmer_input, data.frame(Group, Gender, Birth_weight, Litter, x)) #extract data to make a temp frame, x means each of metabolite
+  colnames (t1) <- c("Group","Gender", "Birth_weight","Litter", "XX") #adding column names
+  t2 <- lmer(XX ~ Group + Gender + Birth_weight + (1|Litter), REML= FALSE, data = t1)  
+  #compare based on 'Group' levels and extract p.values
+  summary(glht(t2, linfct = mcp(Group = "Tukey"), quantile.type = 10))$test$pvalues
+}
+
+# Take the location of metabolite in the data.frame
+analyte_location = 19:length(lmer_input[1,])
+
+# Apply loop for the statistics of all metabolites using the above location
+sbs.tr <- sapply(lmer_input[,analyte_location], FUN = end.glht)
+```
+
+## Adjust P-Value
+```{r}
+# Get rawp vector
+rawp = as.vector(sbs.tr)
+
+# by the methods of TSBH with 0.05
+sbs.ad_P <- mt.rawp2adjp(rawp, proc = "TSBH", alpha = 0.05)
+
+# Reorder (using index) after adjusting to merge
+sbs.ad_P_Reorder <- sbs.ad_P$adjp[order(sbs.ad_P$index),]
+
+# Add metabolites name
+sbs.ad_P_Reorder %>% as.data.frame() %>% 
+  cbind(data.frame(rawp2 = sbs.tr)) %>% 
+  dplyr::rename(padj = TSBH_0.05) -> lmer_result
+
+# Check rawp after merging 
+if(identical(lmer_result$rawp, lmer_result$rawp2)) {
+  print("Successfully merge data using `cbind()`")
+  
+  lmer_result %>% dplyr::select(-rawp2) -> lmer_result
+} else {
+  "Unsuccessfully merge data using `cbind()`. Please check manually again."
+}
+```
+
+## Number of MDAs
+```{r}
+# Number of MDAs
+FDR_cut_off = 0.1
+
+lmer_result %>% 
+  mutate(TSBH_0.1 = ifelse(padj < FDR_cut_off, "o", "x")) -> lmer_result
+
+print(base::paste(
+  lmer_result %>% filter(TSBH_0.1 == "o") %>% nrow(), "significant metabolites with FDR cut-off of", FDR_cut_off
+))
+
+# Export results
+write.csv(
+  lmer_result %>% rownames_to_column(var = "Features"),
+  "../2lmer/_lmer_result.csv",
+  row.names = FALSE
+)
+```
+
+# sessionInfo()
+```{r}
+sessionInfo()
+```
+

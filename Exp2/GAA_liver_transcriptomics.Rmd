@@ -1,0 +1,1022 @@
+---
+title: "Liver transcriptomics in GAA study - Formal analysis report"
+author: 
+ - "Person in Charge: Ziyuan WU & Nguyen Tran Nam Tien"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  bookdown::html_document2:
+    toc: true
+    toc_float: true
+    toc_depth: 5
+---
+
+```{r setup, include=FALSE, dpi=300,fig.align='center'}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r include=FALSE}
+# Run without show output
+# Table reporting
+show_table = function(df, show_rowname = TRUE){
+  library(DT) 
+  
+  df %>% datatable(
+    class = 'cell-border stripe', filter = 'top',
+    extensions = list('Scroller' = NULL, 'Buttons' = NULL),
+    options = list(
+      deferRender = TRUE,
+      scrollY = 300,
+      scrollX = TRUE,
+      dom = 'Bfrtip', buttons = c('colvis', 'excel', 'csv', 'pdf', 'copy'),
+       initComplete = JS(
+        "function(settings, json) {",
+        "$(this.api().table().body()).css({'font-size': '80%'});",
+        "}")
+    ),
+    rownames = show_rowname
+  )
+}
+
+# Another one of table reporting
+knitr_table = function(df, caption = ""){
+  library(kableExtra)
+  
+  if (caption == "") {
+    df %>% kbl() %>% kable_paper(bootstrap_options = "striped", full_width = F, html_font = "Arial")
+  } else {
+    df %>% kbl(caption = caption) %>% kable_paper(bootstrap_options = "striped", full_width = F, html_font = "Arial")
+  }
+}
+
+# Decide time to export data
+exported_time = "231101"
+```
+
+- Call packages
+```{r warning=FALSE,message=FALSE}
+# Data wrangling & visualization
+library(tidyverse)
+library(readxl)
+library(openxlsx)
+library(plyr)
+
+library(quotidieR)
+library(patchwork)
+library(DT)
+library(kableExtra)
+
+# DEA
+library(DESeq2)
+library(edgeR) # which loads limma as a dependency
+
+# Pathway analyses
+library(clusterProfiler)
+library(enrichplot)
+library(org.Ss.eg.db)
+library(ReactomePA)
+
+library(ComplexHeatmap)
+library(circlize)
+library(ggthemes)
+library(ggpubr)
+library(EnhancedVolcano)
+library(dplyr)
+library(ggplot2)
+library(forcats)
+library(stringr)
+library(forcats)
+library(DOSE)
+
+
+`%!in%` = Negate(`%in%`)
+```
+
+- Read raw expression data
+
+```{r echo=FALSE}
+Comparison = "Exp2"
+
+raw_seq <- read.csv(base::paste("../1.Raw data/Expression data/2.raw_seq_", Comparison, ".csv", sep = ""), row.names = 1)
+
+#Assign factor levels 
+meta <- read.csv(base::paste("../1.Raw data/Expression data/1.meta_", Comparison, ".csv", sep = ""), row.names = 1)
+
+group1 = "GAASE"
+group2 = "GLUSE"
+group3 = "GAACON"
+group4 = "GLUCON"
+
+meta$Group <- factor(meta$Group, levels = c(group1,group2,group3,group4))
+
+```
+
+
+##Pre-filtered lowly expressed genes
+- Cut-off for pre-filtering was [recommended by DESeq2 vignette](http://bioconductor.org/packages/devel/bioc/vignettes/DESeq2/inst/doc/DESeq2.html#pre-filtering).
+
+- Thus, filter out genes having a count of at least 10 for a minimal number of samples. The minimal number of samples is to specify the smallest group size. Here, this value is 4, 5, 6 respectively (number of samples in the `Exp1`,`Exp2` ,`Exp3`).
+```{r}
+
+meta %>% 
+  group_by(Group) %>% 
+  dplyr::count() %>% 
+  ungroup() %>% 
+  summarise(min(n)) %>% 
+  pull() -> smallestGroupSize  
+
+
+# Remove lowly expressed genes
+keep_gene <- rowSums(raw_seq >= 10) >= smallestGroupSize
+
+raw_seq_pre_filter <- raw_seq[keep_gene,]
+```
+
+- Raw count of removed genes.
+```{r warning=FALSE,message=FALSE}
+
+keep_gene[!keep_gene] %>% names() -> pre_filter_gene
+raw_seq %>% 
+  rownames_to_column(var = "EntrezID") %>% 
+  filter(rownames(raw_seq) %in% pre_filter_gene) %>% 
+  show_table()
+
+```
+
+- Consistent pattern of Gaussian across samples
+```{r warning=FALSE,message=FALSE,dpi=300}
+
+as.data.frame(raw_seq_pre_filter) %>%  #GAA_RNA_seq_infected_pro_coding
+  pivot_longer(names_to = "Sample", values_to = "Counts", cols = everything()) %>% 
+  #mutate(Sample = factor(Sample, levels = Sample_order_by_Outcome)) %>% 
+  ggplot(aes(x = log2(Counts + 1), fill = Sample)) +
+  geom_histogram(bins = 20) +
+  facet_wrap(~ Sample) +
+  theme_Publication(base_size = 8.8) +
+  theme(legend.position = "none")
+
+
+```
+
+- Download/Export pre-filtered lowly expressed
+```{r echo=FALSE}
+write.csv(raw_seq_pre_filter, paste( "../2.Processed data/3.raw_seq_pre_filter_",Comparison,".csv",sep =""), quote=FALSE, row.names=T)
+
+```
+
+## rlog transformation.
+```{r}
+## prepare DESeq2 object ###check if Litter is a factor or not
+raw_seq_pre_filter_dds = DESeqDataSetFromMatrix(
+  countData = raw_seq_pre_filter %>% as.data.frame(),
+  colData = meta,
+  design = formula(~Litter+Group)
+)
+## rlog transformation
+raw_seq_pre_filter_rld <- raw_seq_pre_filter_dds %>% 
+  DESeq() %>%  
+  rlog(blind = FALSE)
+
+```
+
+## PCA-Visualization
+```{r warning=FALSE, fig.height = 5, fig.width = 10}
+label_group4 = "CON-sGLU"
+
+label_group3 = "CON-rGLU-GAAs"
+
+label_group2 = "SE-sGLU"
+
+label_group1 = "SE-rGLU-GAAs"
+
+
+pcaData <- plotPCA(raw_seq_pre_filter_rld, intgroup=c("Group"), returnData = T)
+pcaData$Group <- factor(pcaData$Group, levels = c(group4, group3, group2, group1),
+                                                 labels = c(label_group4,label_group3, label_group2, label_group1))
+
+percentVar <- round(100 * attr(pcaData, "percentVar"),digits = 1)
+PCAplot <- ggscatter(pcaData,x = "PC1", y = "PC2", color = "Group", size = 1.5, star.plot = TRUE, star.plot.lwd = 0.2)+
+  scale_color_manual(values = c("#81DDA1","#FFB9AE","#009193", "#EB6F69"))+
+  stat_ellipse(aes(x=PC1,y=PC2,fill=Group),geom="polygon",level=0.95, alpha=0.15)+
+  scale_fill_manual(values = c("#81DDA1","#FFB9AE","#009193", "#EB6F69"))+
+  xlab(paste0("PC1(",percentVar[1],"%)")) +
+  ylab(paste0("PC2(",percentVar[2],"%)")) + 
+  theme_bw() +
+  theme(panel.border = element_rect(colour = "black", fill = NA, linewidth= 0.5),    
+        panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank())+
+  theme(panel.border = element_rect(colour = "black", fill = NA, linewidth= 0.5),    
+        panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank())+
+  theme(legend.text=element_text(size=16))+
+  theme(legend.title=element_text(size=18))+
+  theme(strip.text.x = element_text(size = 16))+
+  theme(strip.text.y = element_text(size = 16))+
+  theme(axis.title.y=element_text(size=18,color="black"),
+        axis.title.x=element_text(size=18,color="black"),
+        axis.text.y=element_text(size=16,color="black"),
+        axis.text.x=element_text(size=16,color="black"))
+
+ggsave(PCAplot,filename = paste("../3.Processed figures/1.PCAplot_", Comparison,".png",sep = ""),width = 7.5,height = 5,device = "png")
+```
+
+## DESeq2 with covariates
+- Define `DESeq2` obj.
+```{r}
+#DeSeq2 design ###check if Litter is a factor or not
+raw_seq_pre_filter_dds = DESeqDataSetFromMatrix(
+  countData = raw_seq_pre_filter %>% as.data.frame(),
+  colData = meta,
+  design = formula(~Litter+Group))
+#only for count output
+raw_seq_pre_filter_dds <- DESeq(raw_seq_pre_filter_dds)
+```
+
+## Inspecting size factors
+```{r size_factor, warning=FALSE,message=FALSE, fig.align='center',dpi=300, fig.height=4, fig.width=6}
+enframe(sizeFactors(raw_seq_pre_filter_dds), name = "Sample", value = "Value") %>% 
+  mutate(group = "Size Factor") %>% 
+  bind_rows(
+    # Sequencing depth
+    enframe(colSums(assay(raw_seq_pre_filter_dds, "counts")), 
+            name = "Sample", value = "Value") %>% 
+      mutate(group = "Sequencing Depth")
+  ) %>% 
+  ggplot(aes(x = Sample, y = Value)) +
+  geom_bar(stat = "identity") +
+  facet_wrap(.~group, scales = "free", nrow = 2) +
+  theme_Publication() +
+  labs(y = "") +
+  theme(axis.text.x = element_text(size = 6, angle = 90, vjust = 0.5))
+```
+
+## Dispersion plot
+```{r dispersion_plot, fig.align='center', dpi = 300, fig.width=6, fig.height=4}
+plotDispEsts(raw_seq_pre_filter_dds)
+```
+
+> Dispersion decreases with increasing mean expression levels and dispersion estimates generally surround the curve.
+
+## DESeq2 results
+- Formal with `lfcShrink`
+```{r}
+#SE
+result_group1_group2         <- results(raw_seq_pre_filter_dds, contrast = c("Group", group1, group2))
+resLFC_ref_group1_vs_group2   <- lfcShrink(raw_seq_pre_filter_dds, contrast = c("Group", group1,  group2),  res = result_group1_group2, type = "ashr")
+
+#CON
+result_group3_group4       <- results(raw_seq_pre_filter_dds,   contrast = c("Group", group3, group4))
+resLFC_ref_group3_vs_group4 <- lfcShrink(raw_seq_pre_filter_dds, contrast = c("Group", group3, group4), res = result_group3_group4, type = "ashr")
+
+```
+
+- Genes having no FDR 
+```{r}
+#SE
+resLFC_ref_group1_vs_group2 %>% as.data.frame() %>% filter(is.na(padj)) -> gene_wo_FDR_group1_group2
+gene_wo_FDR_group1_group2 %>% knitr_table()
+#CON
+resLFC_ref_group3_vs_group4 %>% as.data.frame() %>% filter(is.na(padj)) -> gene_wo_FDR_group3_group4
+gene_wo_FDR_group3_group4 %>% knitr_table()
+
+```
+
+- Expression pattern of those genes in raw data
+```{r}
+raw_seq_pre_filter %>% 
+  filter(rownames(.) %in% row.names(gene_wo_FDR_group1_group2)) %>% 
+  show_table()
+
+raw_seq_pre_filter %>% 
+  filter(rownames(.) %in% row.names(gene_wo_FDR_group3_group4)) %>% 
+  show_table()
+```
+
+- Format results object.
+```{r warning=FALSE,message=FALSE}
+
+res_tbl_group1_group2 <- as_tibble(resLFC_ref_group1_vs_group2, rownames = "EntrezID") %>% 
+  # Change variables names
+  dplyr::rename(PValue_group1_group2 = pvalue,
+                FDR_group1_group2 = padj,
+                log2FoldChange_group1_group2 = log2FoldChange,
+                baseMean_group1_group2 = baseMean,
+                lfcSE_group1_group2 = lfcSE) %>% 
+  mutate(
+    foldChange_group1_group2 = 2 ^ log2FoldChange_group1_group2,
+    # Create a real adjusted pvalue
+    PAdj_group1_group2 = p.adjust(PValue_group1_group2, method="fdr")
+  ) %>% 
+  # Sort the data by PValue to compute false discovery counts.
+  #arrange(PValue) %>% 
+  # Compute the false discovery counts on the sorted table
+  mutate(falsePos_group1_group2 = 1:nrow(.) * FDR_group1_group2)
+
+res_tbl_group3_group4 <- as_tibble(resLFC_ref_group3_vs_group4, rownames = "EntrezID") %>%
+  # Change variables names
+  dplyr::rename(PValue_group3_group4 = pvalue,
+                FDR_group3_group4 = padj,
+                log2FoldChange_group3_group4 = log2FoldChange,
+                baseMean_group3_group4 = baseMean,
+                lfcSE_group3_group4 = lfcSE) %>% 
+  mutate(
+    foldChange_group3_group4 = 2 ^ log2FoldChange_group3_group4,
+    # Create a real adjusted pvalue
+    PAdj_group3_group4 = p.adjust(PValue_group3_group4, method="fdr")
+  ) %>% 
+  # Sort the data by PValue to compute false discovery counts.
+  #arrange(PValue) %>% 
+  # Compute the false discovery counts on the sorted table
+  mutate(falsePos_group3_group4 = 1:nrow(.) * FDR_group3_group4)
+
+
+# Get the normalized counts.
+normed = counts(raw_seq_pre_filter_dds, normalized=TRUE) %>% 
+  round(1) %>% 
+  as_tibble(rownames = "EntrezID")
+
+
+# Sample names for condition A - GAASE
+col_names_group1 = data.frame(split(colData(raw_seq_pre_filter_dds),
+                               colData(raw_seq_pre_filter_dds)$Group)[1])$Sample
+
+# Sample names for condition B - GALSE
+col_names_group2 = data.frame(split(colData(raw_seq_pre_filter_dds),
+                               colData(raw_seq_pre_filter_dds)$Group)[2])$Sample
+
+# Sample names for condition C - GAACON
+col_names_group3 = data.frame(split(colData(raw_seq_pre_filter_dds),
+                               colData(raw_seq_pre_filter_dds)$Group)[3])$Sample
+
+# Sample names for condition D - GLUCON
+col_names_group4 = data.frame(split(colData(raw_seq_pre_filter_dds),
+                               colData(raw_seq_pre_filter_dds)$Group)[4])$Sample
+
+# Combine
+res_tbl_group1_group2 %>% 
+  left_join(res_tbl_group3_group4, by = "EntrezID") %>%
+  left_join(normed, by = "EntrezID") %>% 
+  # Sort again for output
+  arrange(PValue_group1_group2) %>% 
+  # Create the individual baseMean columns
+  mutate(
+    baseMean_group1  = rowMeans(.[, col_names_group1]),
+    baseMean_group2  = rowMeans(.[, col_names_group2]),
+    baseMean_group3 = rowMeans(.[, col_names_group3]),
+    baseMean_group4 = rowMeans(.[, col_names_group4])
+  ) %>% 
+  relocate(EntrezID,baseMean_group1, baseMean_group2, baseMean_group3, baseMean_group4, 
+           foldChange_group1_group2, log2FoldChange_group1_group2, lfcSE_group1_group2, PValue_group1_group2, PAdj_group1_group2, FDR_group1_group2, falsePos_group1_group2,
+           foldChange_group3_group4, log2FoldChange_group3_group4, lfcSE_group3_group4, PValue_group3_group4, PAdj_group3_group4, FDR_group3_group4, falsePos_group3_group4,
+           col_names_group4, col_names_group3, col_names_group2, col_names_group1,
+  ) -> res_tbl
+
+
+```
+
+- Add Gene infor
+```{r warning=FALSE,message=FALSE}
+#ID infor
+convert_ID <- read.csv("../1.Raw data/Other data/2.ENSEMBL_ID_Covert20240306.csv")
+
+#remove duplicated EntrezID
+convert_ID_unique <- convert_ID %>% distinct(EntrezID, .keep_all = TRUE)
+
+#check
+any(duplicated(convert_ID_unique$EntrezID))
+
+#add
+
+merge(convert_ID_unique, res_tbl,
+     by.x  = "EntrezID",
+     by.y  = "EntrezID",
+     all.x =  F,
+     all.y =  T) %>% arrange(PValue_group1_group2) -> res_tbl_ready
+
+```
+
+- Remove duplicated gene symbol according to count (keep higher count gene symbol and remove lovwer count)
+```{r}
+any(duplicated(res_tbl_ready$Gene.symbol))
+res_tbl_filtered <- res_tbl_ready %>%
+  group_by(Gene.symbol) %>%
+  filter(baseMean_group4 == max(baseMean_group4)) %>%
+  slice(1) %>%
+  ungroup() %>%
+  arrange(desc(log2FoldChange_group1_group2))
+any(duplicated(res_tbl_filtered$Gene.symbol))
+
+
+```
+
+- Export result
+```{r warning=FALSE,message=FALSE,echo=FALSE}
+write.xlsx(res_tbl_filtered,  file = paste("../2.Processed data/4.res_tbl_ready_",Comparison,".xlsx", sep =""),  rowNames = FALSE,colNames = TRUE, borders = "columns")
+
+```
+
+- Number of DEGs based FDR cut-off.
+
+``
+-SE comparison
+```{r}
+#Define the thresholds
+#Thresholds
+F_C_vec = c(1, 1.2, 1.5)
+FDR_vec = c(0.1, 0.05, 0.01)
+
+###
+expand.grid(#p_val = p_val_vec, 
+  F_C = F_C_vec, 
+  FDR_group1_group2 = FDR_vec) -> df_find_stat_cut_off_group1_group2
+
+# Sig. features with defined threshold
+sig_features_group1_group2 = list()
+
+for (i in 1:nrow(df_find_stat_cut_off_group1_group2)) {
+  res_tbl_filtered %>% 
+    filter(FDR_group1_group2 < df_find_stat_cut_off_group1_group2$FDR_group1_group2[i]) %>% 
+    filter(abs(log2FoldChange_group1_group2) > log2(df_find_stat_cut_off_group1_group2$F_C[i])) -> sig_features_group1_group2[[i]]
+}
+
+sum_table_group1_group2 = list()
+for (i in 1:nrow(df_find_stat_cut_off_group1_group2)) {
+  sum_table_group1_group2[[i]] = data.frame(
+    Total = nrow(sig_features_group1_group2[[i]]),
+    Up = sig_features_group1_group2[[i]] %>% filter(foldChange_group1_group2 > 1) %>% nrow(),
+    Down = sig_features_group1_group2[[i]] %>% filter(foldChange_group1_group2 < 1) %>% nrow(),
+    #raw_p = df_find_stat_cut_off$p_val[i],
+    FC = df_find_stat_cut_off_group1_group2$F_C[i],
+    FDR = df_find_stat_cut_off_group1_group2$FDR_group1_group2[i]
+  )
+}
+do.call("rbind", sum_table_group1_group2) -> sum_table_group1_group2
+
+sum_table_group1_group2 %>% knitr_table(caption = "Number of DEGs with FC and FDR cut-off-group1_group2")
+
+```
+-CON comparison
+```{r}
+#Define the thresholds
+
+expand.grid(#p_val = p_val_vec, 
+  F_C = F_C_vec, 
+  FDR_group3_group4 = FDR_vec) -> df_find_stat_cut_off_group3_group4
+
+# Sig. features with defined threshold
+sig_features_group3_group4 = list()
+
+for (i in 1:nrow(df_find_stat_cut_off_group3_group4)) {
+  res_tbl_filtered %>% 
+    filter(FDR_group3_group4 < df_find_stat_cut_off_group3_group4$FDR_group3_group4[i]) %>% 
+    filter(abs(log2FoldChange_group3_group4) > log2(df_find_stat_cut_off_group3_group4$F_C[i])) -> sig_features_group3_group4[[i]]
+}
+
+sum_table_group3_group4 = list()
+for (i in 1:nrow(df_find_stat_cut_off_group3_group4)) {
+  sum_table_group3_group4[[i]] = data.frame(
+    Total = nrow(sig_features_group3_group4[[i]]),
+    Up = sig_features_group3_group4[[i]] %>% filter(foldChange_group3_group4 > 1) %>% nrow(),
+    Down = sig_features_group3_group4[[i]] %>% filter(foldChange_group3_group4 < 1) %>% nrow(),
+    #raw_p = df_find_stat_cut_off$p_val[i],
+    FC = df_find_stat_cut_off_group3_group4$F_C[i],
+    FDR = df_find_stat_cut_off_group3_group4$FDR_group3_group4[i]
+  )
+}
+do.call("rbind", sum_table_group3_group4) -> sum_table_group3_group4
+
+sum_table_group3_group4 %>% knitr_table(caption = "Number of DEGs with FC and FDR cut-off-group3_group4")
+
+```
+
+
+## Independent filtering exploration
+```{r message=FALSE, warning=FALSE,fig.align='center',dpi=300,fig.height=3}
+#SE
+as_tibble(metadata(resLFC_ref_group1_vs_group2)$filterNumRej) %>%
+  ggplot(aes(x = theta, y = numRej)) +
+  geom_point(size = 1) +
+  geom_vline(xintercept = 0,
+             color = 'red') +
+  theme_Publication(base_size = 8)
+
+#CON
+as_tibble(metadata(resLFC_ref_group3_vs_group4)$filterNumRej) %>%
+  ggplot(aes(x = theta, y = numRej)) +
+  geom_point(size = 1) +
+  geom_vline(xintercept = 0,
+             color = 'red') +
+  theme_Publication(base_size = 8)
+
+
+```
+
+> Genes whith basemean < `r metadata(resLFC_ref_)$filterThreshold` have been filtered. This represents `r names(metadata(resLFC_ref_)$filterThreshold)` of all tested genes.
+
+- No genes have `basemean` == 0 and filtered out by the independent filtering procedure.
+```{r}
+#SE
+metadata(resLFC_ref_group1_vs_group2)$filterThreshold
+# Number of genes with basemean == 0
+res_tbl_filtered %>%
+  filter(baseMean_group1_group2 == 0) %>%
+  nrow() #0
+# Number of genes filtered by the independent filtering procedure
+res_tbl_ready %>%
+  filter(baseMean_group1_group2 > 0 & baseMean_group1_group2 < metadata(resLFC_ref_group1_vs_group2)$filterThreshold) %>%
+  nrow() #0
+
+```
+
+## p-values distribution
+```{r message=FALSE, warning=FALSE,fig.align='center',dpi=300,fig.height=3}
+data.frame(res_tbl_filtered$PValue_group1_group2) %>% 
+  ggplot(aes(res_tbl_filtered.PValue_group1_group2)) +
+  geom_histogram(alpha = 0.8, bins = 50) +
+  labs(x = "p-values", y = "Counts") +
+  theme_Publication(base_size = 8) 
+data.frame(res_tbl_filtered$PValue_group3_group4) %>% 
+  ggplot(aes(res_tbl_filtered.PValue_group3_group4)) +
+  geom_histogram(alpha = 0.8, bins = 50) +
+  labs(x = "p-values", y = "Counts") +
+  theme_Publication(base_size = 8) 
+
+```
+
+## MA plot
+```{r}
+
+DESeq2::plotMA(resLFC_ref_group1_vs_group2)
+DESeq2::plotMA(resLFC_ref_group3_vs_group4)
+```
+
+## Volcano plot
+```{r warning=FALSE,message=FALSE,fig.align='center',dpi = 300, fig.height = 5, fig.width = 6.8}
+
+#SE
+res_tbl_group1_group2 = res_tbl_filtered %>% filter(!is.na(FDR_group1_group2))
+
+keyvals2_group1_group2 <- ifelse((res_tbl_group1_group2$log2FoldChange_group1_group2 < 0) &
+                     (res_tbl_group1_group2$FDR_group1_group2 < 0.05) ,
+                   '#90C0E1',#90C0E1
+                   ifelse((res_tbl_group1_group2$log2FoldChange_group1_group2 > 0) &
+                            (res_tbl_group1_group2$FDR_group1_group2 < 0.05),
+                          '#f5a6ae','#848484')  #f5a6ae
+)
+
+names(keyvals2_group1_group2)[keyvals2_group1_group2 == '#848484'] <- 'Not significant'
+names(keyvals2_group1_group2)[keyvals2_group1_group2 == '#90C0E1'] <- 'FDR (Down-regulation)' #90C0E1
+names(keyvals2_group1_group2)[keyvals2_group1_group2 == '#f5a6ae'] <- 'FDR (Up-regulation)'  #f5a6ae
+
+# Plot volcano plot
+vol_group1_group2 <- EnhancedVolcano(
+  res_tbl_group1_group2,
+  lab = "",
+  x = 'log2FoldChange_group1_group2',
+  y = 'FDR_group1_group2',
+  xlab = bquote(~ Log[2] ~ "(FC)"),
+  ylab = bquote(~ -Log[10] ~ "(FDR)"),
+  axisLabSize = 12,
+  title = NULL,
+  pCutoff = NA,
+  FCcutoff = NA,
+  cutoffLineWidth = 0.8,
+  pointSize = 2,
+  labSize = 0,
+  # labFace = 'bold',
+  boxedLabels = FALSE,
+  legendPosition = 'none',
+  colAlpha = 0.6,
+  colCustom = keyvals2_group1_group2,
+  legendLabSize = 12,
+  legendIconSize = 3,
+  drawConnectors = FALSE,
+  subtitle = "",
+  #caption =  bquote("False Discovery Rate (FDR) cut off, 0.05"),
+  caption =  bquote(""),
+  captionLabSize = 12,
+  hline = c(0.05),
+  hlineCol = c("grey30"),
+  hlineType = c("dotted"),
+  hlineWidth = c(0.8)#,
+  #vline = c(-log2(1.5), log2(1.5)),
+) 
+
+#CON
+res_tbl_group3_group4 = res_tbl_filtered %>% filter(!is.na(FDR_group3_group4))
+
+keyvals2_group3_group4 <- ifelse((res_tbl_group3_group4$log2FoldChange_group3_group4 < 0) &
+                     (res_tbl_group3_group4$FDR_group3_group4 < 0.05) ,
+                   '#90C0E1',#90C0E1
+                   ifelse((res_tbl_group3_group4$log2FoldChange_group3_group4 > 0) &
+                            (res_tbl_group3_group4$FDR_group3_group4 < 0.05),
+                          '#f5a6ae','#848484')  #f5a6ae
+)
+
+names(keyvals2_group3_group4)[keyvals2_group3_group4 == '#848484'] <- 'Not significant'
+names(keyvals2_group3_group4)[keyvals2_group3_group4 == '#90C0E1'] <- 'FDR (Down-regulation)' #90C0E1
+names(keyvals2_group3_group4)[keyvals2_group3_group4 == '#f5a6ae'] <- 'FDR (Up-regulation)'  #f5a6ae
+
+# Plot volcano plot
+vol_group3_group4 <- EnhancedVolcano(
+  res_tbl_group3_group4,
+  lab = "",
+  x = 'log2FoldChange_group3_group4',
+  y = 'FDR_group3_group4',
+  xlab = bquote(~ Log[2] ~ "(FC)"),
+  ylab = bquote(~ -Log[10] ~ "(FDR)"),
+  axisLabSize = 12,
+  title = NULL,
+  pCutoff = NA,
+  FCcutoff = NA,
+  cutoffLineWidth = 0.8,
+  pointSize = 2,
+  labSize = 0,
+  # labFace = 'bold',
+  boxedLabels = FALSE,
+  legendPosition = 'none',
+  colAlpha = 0.6,
+  colCustom = keyvals2_group3_group4,
+  legendLabSize = 12,
+  legendIconSize = 3,
+  drawConnectors = FALSE,
+  subtitle = "",
+  #caption =  bquote("False Discovery Rate (FDR) cut off, 0.05"),
+  caption =  bquote(""),
+  captionLabSize = 12,
+  hline = c(0.05),
+  hlineCol = c("grey30"),
+  hlineType = c("dotted"),
+  hlineWidth = c(0.8)#,
+  #vline = c(-log2(1.5), log2(1.5)),
+) 
+
+```
+- Output
+```{r}
+Volplot <- cowplot::plot_grid(vol_group1_group2, vol_group3_group4,
+                              ncol = 2
+                              #labels = LETTERS[1:4],
+                              #label_size = 16,
+                              #align = 'v',
+                              #rel_heights = c(1, 0.2, 1.14))
+)
+
+ggsave(Volplot,filename =paste( "../3.Processed figures/2.Volplot_",Comparison,".png"),width = 10,height = 5,device = "png")
+```
+
+# Pathway analyses
+- Inputs for GSEA obtained from the analysis of GAA data.
+## Prepare data
+```{r}
+#SE
+as_tibble(resLFC_ref_group1_vs_group2, rownames = "EntrezID") %>% 
+  dplyr::rename(FDR = padj) %>% 
+  mutate(foldChange = 2^log2FoldChange) %>% 
+  filter(!is.na(EntrezID)) %>%       # removed NA values for genes (0 gene)
+  filter(!duplicated(EntrezID)) %>%  # removed duplicated genes (0 gene)
+  filter(!is.na(FDR)) %>%            #  genes without FRD have been excluded 
+  mutate(EntrezID = as.character(EntrezID)) -> DESeq2_GSEA_group1_group2
+#CON
+as_tibble(resLFC_ref_group3_vs_group4, rownames = "EntrezID") %>% 
+  dplyr::rename(FDR = padj) %>% 
+  mutate(foldChange = 2^log2FoldChange) %>% 
+  filter(!is.na(EntrezID)) %>%       # removed NA values for genes (0 gene)
+  filter(!duplicated(EntrezID)) %>%  # removed duplicated genes (0 gene)
+  filter(!is.na(FDR)) %>%            #  genes without FRD have been excluded 
+  mutate(EntrezID = as.character(EntrezID)) -> DESeq2_GSEA_group3_group4
+
+```
+
+
+- Download GSEA input
+```{r}
+write.xlsx(DESeq2_GSEA_group1_group2,  file = paste("../2.Processed data/5.DESeq2_GSEA_",group1, "_",group2,".xlsx", sep = ""),   rowNames = FALSE,colNames = TRUE, borders = "columns")
+write.xlsx(DESeq2_GSEA_group3_group4,  file = paste("../2.Processed data/5.DESeq2_GSEA_", group3, "_",group4,".xlsx", sep = ""),  rowNames = FALSE,colNames = TRUE, borders = "columns")
+
+DESeq2_GSEA_group1_group2 <- read.xlsx("../2.Processed data/5.DESeq2_GSEA_GAACON_GLUCON.xlsx")
+DESeq2_GSEA_group3_group4 <- read.xlsx("../2.Processed data/5.DESeq2_GSEA_GAACON_GLUCON.xlsx")
+```
+
+### Prepare gene list
+```{r}
+#SE
+geneList_DESeq2_group1_group2 = DESeq2_GSEA_group1_group2$log2FoldChange
+## named vector
+names(geneList_DESeq2_group1_group2) = as.character(DESeq2_GSEA_group1_group2$EntrezID)
+## decreasing by fold change
+geneList_DESeq2_group1_group2 = sort(geneList_DESeq2_group1_group2, decreasing = TRUE)
+
+#CON
+geneList_DESeq2_group3_group4 = DESeq2_GSEA_group3_group4$log2FoldChange
+## named vector
+names(geneList_DESeq2_group3_group4) = as.character(DESeq2_GSEA_group3_group4$EntrezID)
+## decreasing by fold change
+geneList_DESeq2_group3_group4 = sort(geneList_DESeq2_group3_group4, decreasing = TRUE)
+
+```
+
+## KEGG 
+```{r}
+set.seed(123)
+#SE
+GSEA_KEGG_DEseq2_group1_group2 <- gseKEGG(geneList      = geneList_DESeq2_group1_group2,
+                                          organism      = 'ssc',
+                                          minGSSize     = 10,
+                                          pvalueCutoff  = 0.05,
+                                          pAdjustMethod = "fdr",
+                                          eps           = 0,
+                                          verbose       = FALSE)
+#CON
+GSEA_KEGG_DEseq2_group3_group4 <- gseKEGG(geneList     = geneList_DESeq2_group3_group4,
+                                          organism      = 'ssc',
+                                          minGSSize     = 10,
+                                          pvalueCutoff  = 0.05,
+                                          pAdjustMethod = "fdr",
+                                          eps           = 0,
+                                          verbose       = FALSE)
+
+```
+
+- Dot plot
+```{r warning=FALSE,message=FALSE, scale = 1.5, dpi=300}
+dotplot(GSEA_KEGG_DEseq2_group1_group2, showCategory = 20, split=".sign") +
+  facet_grid(.~.sign) +
+  #theme_Publication(base_size = 8) +
+  scale_y_discrete(labels = scales::label_wrap(100)) +
+  scale_size(range = c(1, 4)) +
+  theme(axis.text.x = element_text(size = 8),
+        axis.text.y = element_text(size = 8))
+dotplot(GSEA_KEGG_DEseq2_group3_group4, showCategory = 20, split=".sign") +
+  facet_grid(.~.sign) +
+  #theme_Publication(base_size = 8) +
+  scale_y_discrete(labels = scales::label_wrap(100)) +
+  scale_size(range = c(1, 4)) +
+  theme(axis.text.x = element_text(size = 8),
+        axis.text.y = element_text(size = 8))
+
+```
+
+- Calculate counts and  gene ratio
+```{r}
+#SE
+GSEA_KEGG_DEseq2_group1_group2 <- as.data.frame(GSEA_KEGG_DEseq2_group1_group2)
+colnames(GSEA_KEGG_DEseq2_group1_group2)
+GSEA_KEGG_DEseq2_group1_group2 <- GSEA_KEGG_DEseq2_group1_group2 %>%
+  mutate(Count = sapply(strsplit(core_enrichment, "/"), length))
+GSEA_KEGG_DEseq2_group1_group2$GeneRatio <- (GSEA_KEGG_DEseq2_group1_group2$Count) / (GSEA_KEGG_DEseq2_group1_group2$setSize)
+GSEA_KEGG_DEseq2_group1_group2$Sign <- ifelse(GSEA_KEGG_DEseq2_group1_group2$NES < 0, "Suppressed", "Activated")
+GSEA_KEGG_DEseq2_group1_group2 <- GSEA_KEGG_DEseq2_group1_group2[order(GSEA_KEGG_DEseq2_group1_group2$Sign != "Activated", -GSEA_KEGG_DEseq2_group1_group2$NES), ]
+#CON
+GSEA_KEGG_DEseq2_group3_group4 <- as.data.frame(GSEA_KEGG_DEseq2_group3_group4)
+colnames(GSEA_KEGG_DEseq2_group3_group4)
+GSEA_KEGG_DEseq2_group3_group4 <- GSEA_KEGG_DEseq2_group3_group4 %>%
+  mutate(Count = sapply(strsplit(core_enrichment, "/"), length))
+GSEA_KEGG_DEseq2_group3_group4$GeneRatio <- (GSEA_KEGG_DEseq2_group3_group4$Count) / (GSEA_KEGG_DEseq2_group3_group4$setSize)
+GSEA_KEGG_DEseq2_group3_group4$Sign <- ifelse(GSEA_KEGG_DEseq2_group3_group4$NES < 0, "Suppressed", "Activated")
+GSEA_KEGG_DEseq2_group3_group4 <- GSEA_KEGG_DEseq2_group3_group4[order(GSEA_KEGG_DEseq2_group3_group4$Sign != "Activated", -GSEA_KEGG_DEseq2_group3_group4$NES), ]
+
+```
+
+
+- Export results
+```{r}
+write.xlsx(GSEA_KEGG_DEseq2_group1_group2,  file = paste("../2.Processed data/6.GSEA_KEGG_DEseq2_",group1,"_",group2,".xlsx", sep = ""),  rowNames = FALSE,colNames = TRUE, borders = "columns")
+write.xlsx(GSEA_KEGG_DEseq2_group3_group4, file = paste("../2.Processed data/6.GSEA_KEGG_DEseq2_",group3,"_",group4,".xlsx", sep =""), rowNames = FALSE,colNames = TRUE, borders = "columns")
+
+```
+
+## GO:BP 
+```{r}
+library(org.Ss.eg.db)
+set.seed(123458)
+#SE
+GSEA_GOBP_DEseq2_group1_group2 <-  gseGO(geneList      = geneList_DESeq2_group1_group2,
+                                         OrgDb         = org.Ss.eg.db,
+                                         ont           = "BP",
+                                         minGSSize     = 10,
+                                         pvalueCutoff  = 0.05,
+                                         pAdjustMethod = "fdr",
+                                         eps           = 0,
+                                         verbose       = FALSE)
+
+#CON
+GSEA_GOBP_DEseq2_group3_group4 <-  gseGO(geneList      = geneList_DESeq2_group3_group4,
+                                         OrgDb         = org.Ss.eg.db,
+                                         ont           = "BP",
+                                         minGSSize     = 10,
+                                         pvalueCutoff  = 0.05,
+                                         pAdjustMethod = "fdr",
+                                         eps           = 0,
+                                         verbose       = FALSE)
+```
+
+- Dot plot
+```{r warning=FALSE,message=FALSE, scale = 1.5, dpi=300}
+dotplot(GSEA_GOBP_DEseq2_group1_group2, showCategory = 20, split=".sign") +
+  facet_grid(.~.sign) +
+  #theme_Publication(base_size = 8) +
+  scale_y_discrete(labels = scales::label_wrap(100)) +
+  scale_size(range = c(1, 4)) +
+  theme(axis.text.x = element_text(size = 8),
+        axis.text.y = element_text(size = 8))
+dotplot(GSEA_GOBP_DEseq2_group3_group4, showCategory = 20, split=".sign") +
+  facet_grid(.~.sign) +
+  #theme_Publication(base_size = 8) +
+  scale_y_discrete(labels = scales::label_wrap(100)) +
+  scale_size(range = c(1, 4)) +
+  theme(axis.text.x = element_text(size = 8),
+        axis.text.y = element_text(size = 8))
+
+```
+
+- Calculate counts and  gene ratio
+```{r}
+#SE
+GSEA_GOBP_DEseq2_group1_group2 <- as.data.frame(GSEA_GOBP_DEseq2_group1_group2)
+colnames(GSEA_GOBP_DEseq2_group1_group2)
+GSEA_GOBP_DEseq2_group1_group2 <- GSEA_GOBP_DEseq2_group1_group2 %>%
+  mutate(Count = sapply(strsplit(core_enrichment, "/"), length))
+GSEA_GOBP_DEseq2_group1_group2$GeneRatio <- (GSEA_GOBP_DEseq2_group1_group2$Count) / (GSEA_GOBP_DEseq2_group1_group2$setSize)
+GSEA_GOBP_DEseq2_group1_group2$Sign <- ifelse(GSEA_GOBP_DEseq2_group1_group2$NES < 0, "Suppressed", "Activated")
+GSEA_GOBP_DEseq2_group1_group2 <- GSEA_GOBP_DEseq2_group1_group2[order(GSEA_GOBP_DEseq2_group1_group2$Sign != "Activated", -GSEA_GOBP_DEseq2_group1_group2$NES), ]
+#CON
+GSEA_GOBP_DEseq2_group3_group4 <- as.data.frame(GSEA_GOBP_DEseq2_group3_group4)
+colnames(GSEA_GOBP_DEseq2_group3_group4)
+GSEA_GOBP_DEseq2_group3_group4 <- GSEA_GOBP_DEseq2_group3_group4 %>%
+  mutate(Count = sapply(strsplit(core_enrichment, "/"), length))
+GSEA_GOBP_DEseq2_group3_group4$GeneRatio <- (GSEA_GOBP_DEseq2_group3_group4$Count) / (GSEA_GOBP_DEseq2_group3_group4$setSize)
+GSEA_GOBP_DEseq2_group3_group4$Sign <- ifelse(GSEA_GOBP_DEseq2_group3_group4$NES < 0, "Suppressed", "Activated")
+GSEA_GOBP_DEseq2_group3_group4 <- GSEA_GOBP_DEseq2_group3_group4[order(GSEA_GOBP_DEseq2_group3_group4$Sign != "Activated", -GSEA_GOBP_DEseq2_group3_group4$NES), ]
+
+```
+
+- Export results
+```{r}
+write.xlsx(GSEA_GOBP_DEseq2_group1_group2,  file = paste("../2.Processed data/6.GSEA_GOBP_DEseq2_",group1,"_",group2,".xlsx", sep = ""),  rowNames = FALSE,colNames = TRUE, borders = "columns")
+write.xlsx(GSEA_GOBP_DEseq2_group3_group4, file = paste("../2.Processed data/6.GSEA_GOBP_DEseq2_",group3,"_",group4,".xlsx", sep =""), rowNames = FALSE,colNames = TRUE, borders = "columns")
+
+```
+
+## Reactome
+```{r}
+library(ReactomePA)
+GSEA_Reactome_DEseq2_group1_group2 <- gsePathway(geneList      = geneList_DESeq2_group1_group2,
+                                                 organism      = "pig",  #http://reactome.org/content/schema/instance/browser/49633
+                                                 minGSSize     = 10,
+                                                 pvalueCutoff  = 0.05,
+                                                 pAdjustMethod = "fdr",
+                                                 eps           = 0,
+                                                 verbose       = FALSE)
+GSEA_Reactome_DEseq2_group3_group4 <- gsePathway(geneList      = geneList_DESeq2_group3_group4,
+                                                 organism      = "pig",  #http://reactome.org/content/schema/instance/browser/49633
+                                                 minGSSize     = 10,
+                                                 pvalueCutoff  = 0.05,
+                                                 pAdjustMethod = "fdr",
+                                                 eps           = 0,
+                                                 verbose       = FALSE)
+```
+
+- Dot plot
+```{r warning=FALSE,message=FALSE, scale = 1.5, dpi=300}
+dotplot(GSEA_Reactome_DEseq2_group1_group2, showCategory = 20, split=".sign") +
+  facet_grid(.~.sign) +
+  #theme_Publication(base_size = 8) +
+  scale_y_discrete(labels = scales::label_wrap(100)) +
+  scale_size(range = c(1, 4)) +
+  theme(axis.text.x = element_text(size = 8),
+        axis.text.y = element_text(size = 8))
+dotplot(GSEA_Reactome_DEseq2_group3_group4, showCategory = 20, split=".sign") +
+  facet_grid(.~.sign) +
+  #theme_Publication(base_size = 8) +
+  scale_y_discrete(labels = scales::label_wrap(100)) +
+  scale_size(range = c(1, 4)) +
+  theme(axis.text.x = element_text(size = 8),
+        axis.text.y = element_text(size = 8))
+
+```
+
+- Calculate counts and  gene ratio
+```{r}
+#SE
+GSEA_Reactome_DEseq2_group1_group2 <- as.data.frame(GSEA_Reactome_DEseq2_group1_group2)
+colnames(GSEA_Reactome_DEseq2_group1_group2)
+GSEA_Reactome_DEseq2_group1_group2 <- GSEA_Reactome_DEseq2_group1_group2 %>%
+  mutate(Count = sapply(strsplit(core_enrichment, "/"), length))
+GSEA_Reactome_DEseq2_group1_group2$GeneRatio <- (GSEA_Reactome_DEseq2_group1_group2$Count) / (GSEA_Reactome_DEseq2_group1_group2$setSize)
+GSEA_Reactome_DEseq2_group1_group2$Sign <- ifelse(GSEA_Reactome_DEseq2_group1_group2$NES < 0, "Suppressed", "Activated")
+GSEA_Reactome_DEseq2_group1_group2 <- GSEA_Reactome_DEseq2_group1_group2[order(GSEA_Reactome_DEseq2_group1_group2$Sign != "Activated", -GSEA_Reactome_DEseq2_group1_group2$NES), ]
+#CON
+GSEA_Reactome_DEseq2_group3_group4 <- as.data.frame(GSEA_Reactome_DEseq2_group3_group4)
+colnames(GSEA_Reactome_DEseq2_group3_group4)
+GSEA_Reactome_DEseq2_group3_group4 <- GSEA_Reactome_DEseq2_group3_group4 %>%
+  mutate(Count = sapply(strsplit(core_enrichment, "/"), length))
+GSEA_Reactome_DEseq2_group3_group4$GeneRatio <- (GSEA_Reactome_DEseq2_group3_group4$Count) / (GSEA_Reactome_DEseq2_group3_group4$setSize)
+GSEA_Reactome_DEseq2_group3_group4$Sign <- ifelse(GSEA_Reactome_DEseq2_group3_group4$NES < 0, "Suppressed", "Activated")
+GSEA_Reactome_DEseq2_group3_group4 <- GSEA_Reactome_DEseq2_group3_group4[order(GSEA_Reactome_DEseq2_group3_group4$Sign != "Activated", -GSEA_Reactome_DEseq2_group3_group4$NES), ]
+
+```
+
+- Export results
+```{r}
+write.xlsx(GSEA_Reactome_DEseq2_group1_group2,  file = paste("../2.Processed data/6.GSEA_Reactome_DEseq2_",group1,"_",group2,".xlsx", sep = ""),  rowNames = FALSE,colNames = TRUE, borders = "columns")
+write.xlsx(GSEA_Reactome_DEseq2_group3_group4, file = paste("../2.Processed data/6.GSEA_Reactome_DEseq2_",group3,"_",group4,".xlsx", sep =""), rowNames = FALSE,colNames = TRUE, borders = "columns")
+
+```
+## Dot plot
+### Table upload
+```{r}
+#KEGG dataset
+KEGG <- read.xlsx("../1.Raw data/Other data/3.KEGG Pathway Sum GAA study.xlsx", sheet = "All")
+
+#SE
+group1_group2 <- read.xlsx(paste("../2.Processed data/6.GSEA_KEGG_DEseq2_",group1,"_",group2,".xlsx", sep = ""))
+
+group1_group2_KEGG <- merge(group1_group2, KEGG,
+     by.x  = "Description", 
+     by.y  = "KEGG_PATHWAY_CLASS2_2",
+     all.x =  T, 
+     all.y =  F) %>% arrange(KEGG_PATHWAY_CLASS2) %>% arrange(Sign)
+
+group1_group2_KEGG_filter <- subset(group1_group2_KEGG, !is.na(KEGG_PATHWAY_CLASS1))
+group1_group2_KEGG_filter$`Gene ratio` <- group1_group2_KEGG_filter$GeneRatio
+group1_group2_KEGG_filter <- group1_group2_KEGG_filter[order(group1_group2_KEGG_filter$Sign != "Activated", -group1_group2_KEGG_filter$`Gene ratio`), ]
+group1_group2_KEGG_filter$KEGG_PATHWAY_CLASS2 <-  factor(group1_group2_KEGG_filter$KEGG_PATHWAY_CLASS2,
+                                            levels  = c("Global and overview maps",
+                                                        "Energy metabolism",
+                                                        "Carbohydrate metabolism",
+                                                        "Amino acid metabolism",
+                                                        "Lipid metabolism",
+                                                        "Immune system",
+                                                        "Signal transduction"))
+
+#CON
+group3_group4 <- read.xlsx(paste("../2.Processed data/6.GSEA_KEGG_DEseq2_",group3,"_",group4,".xlsx", sep =""))
+
+group3_group4_KEGG <- merge(group3_group4, KEGG,
+     by.x  = "Description", 
+     by.y  = "KEGG_PATHWAY_CLASS2_2",
+     all.x =  T, 
+     all.y =  F) %>% arrange(KEGG_PATHWAY_CLASS2) %>% arrange(Sign)
+
+group3_group4_KEGG_filter <- subset(group3_group4_KEGG, !is.na(KEGG_PATHWAY_CLASS1))
+group3_group4_KEGG_filter$`Gene ratio` <- group3_group4_KEGG_filter$GeneRatio
+group3_group4_KEGG_filter <- group3_group4_KEGG_filter[order(group3_group4_KEGG_filter$Sign != "Activated", -group3_group4_KEGG_filter$`Gene ratio`), ]
+group3_group4_KEGG_filter$KEGG_PATHWAY_CLASS2 <-  factor(group3_group4_KEGG_filter$KEGG_PATHWAY_CLASS2,
+                                            levels  = c("Global and overview maps",
+                                                        "Energy metabolism",
+                                                        "Carbohydrate metabolism",
+                                                        "Amino acid metabolism",
+                                                        "Lipid metabolism",
+                                                        "Immune system",
+                                                        "Signal transduction"))
+
+```
+
+### Plot
+####SE
+```{r}
+level_filter_group1_group2 <- group1_group2_KEGG_filter[,1]
+group1_group2_KEGG_filter$Term <- factor(group1_group2_KEGG_filter$Description,level = rev(level_filter_group1_group2))
+
+group1_group2_dotplot <- ggplot(group1_group2_KEGG_filter, aes(x = `Gene ratio`, y= Term))+
+  geom_point(aes(size= Count,color= p.adjust))+
+  geom_segment(aes(xend=0, yend = Term)) +
+  #scale_x_continuous(breaks = seq(0.0, 0.6, by = 0.1)) +
+  scale_color_gradientn(breaks = c(3e-02, 1e-6, 1e-10), colours=c("#f7ca64", "#46bac2", "#7e62a3"), trans = "log10", guide=guide_colorbar(reverse=T, order=1)) +
+  theme_dose(font.size = 12) +
+  scale_size_continuous(range=c(3, 7)) +
+  facet_grid(vars(KEGG_PATHWAY_CLASS2), vars(Sign), scale = 'free', space = 'free_y', switch='y')+
+  theme(strip.text.y.left = element_text(angle = 0, size = 12))+
+  theme(strip.text.x.top = element_text(size = 12))+
+  theme(axis.text.x.bottom= element_text(size = 10))+
+  labs(color=expression(p.adjust,size="Count"), x="Gene Ratio",y="Term")+
+  theme(plot.title=element_text(hjust=0.5, face = "bold"),
+        plot.subtitle=element_text(hjust=0.5, face = "bold"))+
+  ylab(NULL)
+
+ggsave(group1_group2_dotplot,filename = paste("../3.Processed figures/3.",group1,"_",group2,"_dotplot.png", sep = ""),width = 10,height = 16,device = "png")
+```
+
+####CON
+```{r}
+level_filter_group3_group4 <- group3_group4_KEGG_filter[,1]
+group3_group4_KEGG_filter$Term <- factor(group3_group4_KEGG_filter$Description,level = rev(level_filter_group3_group4))
+
+group3_group4_dotplot <- ggplot(group3_group4_KEGG_filter, aes(x = `Gene ratio`, y= Term))+
+  geom_point(aes(size= Count,color= p.adjust))+
+  geom_segment(aes(xend=0, yend = Term)) +
+  #scale_x_continuous(breaks = seq(0.0, 0.6, by = 0.1)) +
+  scale_color_gradientn(breaks = c(4e-02, 1e-3, 1e-5), colours=c("#f7ca64", "#46bac2", "#7e62a3"), trans = "log10", guide=guide_colorbar(reverse=T, order=1)) +
+  theme_dose(font.size = 12) +
+  scale_size_continuous(range=c(3, 7)) +
+  facet_grid(vars(KEGG_PATHWAY_CLASS2), vars(Sign), scale = 'free', space = 'free_y', switch='y')+
+  theme(strip.text.y.left = element_text(angle = 0, size = 12))+
+  theme(strip.text.x.top = element_text(size = 12))+
+  theme(axis.text.x.bottom= element_text(size = 10))+
+  labs(color=expression(p.adjust,size="Count"), x="Gene Ratio",y="Term")+
+  theme(plot.title=element_text(hjust=0.5, face = "bold"),
+        plot.subtitle=element_text(hjust=0.5, face = "bold"))+
+  ylab(NULL)
+
+ggsave(group3_group4_dotplot,filename = paste("../3.Processed figures/3.",group3,"_",group4,"_dotplot.png", sep =""),width = 9,height = 9,device = "png")
+```

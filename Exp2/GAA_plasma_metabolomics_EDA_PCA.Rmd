@@ -1,0 +1,312 @@
+---
+title: "The interplay between glucogenic amino acids and carbohydrate metabolisms in regulating the clinical fate of infected preterm newborns"
+subtitle: "Plasma metabolomics - EDA - PCA"
+author: 
+- "Person in Charge: Ziyuan WU, Nguyen Tran Nam Tien, Nguyen Thi Hai Yen"
+- "Supervisor: Duc Ninh Nguyen, Nguyen Phuoc Long"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  bookdown::pdf_document2:
+   includes:
+    in_header: "wrap-code.tex"
+   keep_tex: true
+   number_sections: true
+   toc: true
+---
+
+<style type="text/css">
+
+body{
+  font-family: Arial;
+  font-size: 12pt;
+}
+code.r{
+  font-family: FiraCode;
+  font-size: 14px;
+}
+pre {
+  font-size: 13px
+}
+</style>
+
+```{r setup, include=FALSE, fig.align='center',tidy=TRUE}
+# SET UP CODE CHUNK FOR REPORTING PURPOSE
+
+knitr::opts_chunk$set(echo = TRUE)
+
+# Remove all R objects in the environment first
+rm(list=ls())
+
+# Wrap output
+library(knitr)
+hook_output = knit_hooks$get("output")
+knit_hooks$set(output = function(x, options) {
+    # this hook is used only when the linewidth option is not NULL
+    if (!is.null(n <- options$linewidth)) {
+        x = xfun::split_lines(x)
+        # any lines wider than n should be wrapped
+        if (any(nchar(x) > n))
+            x = strwrap(x, width = n)
+        x = paste(x, collapse = "\n")
+    }
+    hook_output(x, options)
+})
+
+# Table reporting
+show_table = function(df, show_rowname = TRUE){
+  library(DT) 
+  
+  df %>% datatable(
+    class = 'cell-border stripe', filter = 'top',
+    extensions = list('Scroller' = NULL, 'Buttons' = NULL),
+    options = list(
+      deferRender = TRUE,
+      scrollY = 300,
+      scrollX = TRUE,
+      dom = 'Bfrtip', buttons = c('colvis', 'excel', 'csv', 'pdf', 'copy'),
+       initComplete = JS(
+        "function(settings, json) {",
+        "$(this.api().table().body()).css({'font-size': '80%'});",
+        "}")
+    ),
+    rownames = show_rowname
+  )
+}
+
+# Another one of table reporting
+knitr_table = function(df, caption = ""){
+  library(kableExtra)
+  
+  if (caption == "") {
+    df %>% kbl() %>% kable_paper(bootstrap_options = "striped", full_width = F, html_font = "Arial")
+  } else {
+    df %>% kbl(caption = caption) %>% kable_paper(bootstrap_options = "striped", full_width = F, html_font = "Arial")
+  }
+}
+
+# Insert image
+insert_image = function(dir, image_name){
+  knitr::include_graphics(
+    base::paste(
+      dir, "/",
+      image_name,
+      sep = ""
+    )
+  )
+}
+
+# Define time to export the data
+exported_time = "240205"
+```
+
+# Call packages
+```{r warning=FALSE,message=FALSE}
+# Data wrangling
+library(tidyverse)
+library(openxlsx)
+
+# Metabolomics data analysis
+library(MetaboAnalystR)
+library(quotidieR)
+library(ggpubr)
+
+`%!in%` = Negate(`%in%`)
+```
+
+# Note
+- Check the `MetaboAnalystR` version (see `sessionInfo()` section). However, it should be noted that even with the same `MetaboAnalystR` and `R` versions, the code might not work. This might be due to the day of installation. Thus, when the code does not work, please find 4 below lines in this code and remove them, then use the next line (have a comment with the note: new updated function) for these lines.
+  + `mSet <- FilterVariable(mSet, "iqr", IQR_cut_off, "T", QC_RSD, F)` (3 lines from PCA, PLS_DA, and linear model function)
+  + `mSet <- FilterVariable(mSet, "iqr", IQR_cut_off, "F", QC_RSD, F)` (in linear model function)
+  
+# Get group label
+- Code to obtain groups levels
+```{r}
+Get_group_level = function(dir, filename){
+  
+  library(MetaboAnalystR)
+  library(tidyverse)
+  #Set working directory
+  setwd(dir)
+  file_path = paste(dir, filename, sep = "/")
+  
+  mSet <- InitDataObjects("pktable", "stat", FALSE)
+  mSet <- Read.TextData(
+    mSet, 
+    file_path, 
+    "colu", "disc"
+  )
+  
+  mSet$dataSet$cls %>% unique() -> group_level
+  
+  return(group_level)
+}
+```
+
+- Get group label. 
+```{r}
+feature.nm.vec <- c("")
+smpl.nm.vec <- c("")
+# Note: this need in order levels when read the data
+group_order = Get_group_level(
+  dir = "../2MetaboAnalyst",
+  filename = "2Merged_annotated_POS_NEG_Exp2SE.csv"
+)
+grp.nm.vec <- group_order
+```
+
+- Should check our group label.
+```{r}
+group_order
+```
+
+# Data Exploration - PCA
+## Define function
+```{r}
+EDA_PCA = function(dir, filename, 
+                   time = as.character(format(Sys.time(), "%Y%m%d")), 
+                   QC_RSD = 25, IQR_cut_off = 0,
+                   norm_method = "MedianNorm", trans_method = "LogNorm", scale_method = "ParetoNorm",
+                   show_label = 0){
+  
+  library(MetaboAnalystR)
+  #Set working directory
+  setwd(dir)
+  file_path = paste(dir, filename, sep = "/")
+  
+  # Initiate object
+  mSet <- InitDataObjects("pktable", "stat", FALSE)
+  # Read data
+  mSet <- Read.TextData(
+    mSet, 
+    file_path, 
+    "colu", "disc"
+  )
+  
+  # Check data set as well as NA
+  mSet <- SanityCheckData(mSet)
+  
+  # Data Treatment
+  ## NA values remove
+  mSet <- RemoveMissingPercent(mSet, percent = 0.5)
+  ## NA values imputation
+  mSet <- ImputeMissingVar(mSet, method = "knn_var")
+  
+  mSet <- SanityCheckData(mSet)
+
+  ## QCs repeatability check by threshold of 25%
+  mSet <- FilterVariable(mSet, "iqr", IQR_cut_off, "T", QC_RSD, F)   # old version, laptop
+  # mSet <- FilterVariable(mSetObj = mSet, qc.filter = "T", rsd = QC_RSD, var.filter = "iqr", var.cutoff = IQR_cut_off)  # new updated function, workstation
+  
+  ## Decide to retain or remove any groups, note: remove/retain need to be done outside the function
+  mSet <- GetGroupNames(mSet, "")
+  feature.nm.vec <- c("")
+  smpl.nm.vec <- c("")
+  grp.nm.vec <- c("")
+  mSet <- UpdateData(mSet)
+  
+  ## Normalize for PCA
+  mSet <- PreparePrenormData(mSet)
+  mSet <- Normalization(mSet, norm_method, trans_method, scale_method, ratio = FALSE, ratioNum = 20)
+  mSet <- PlotNormSummary(mSet, "norm_0_", "png", 300, width=NA)
+  mSet <- PlotSampleNormSummary(mSet, "snorm_0_", "png", 300, width=NA)
+
+  # PCA 
+  mSet <- PCA.Anal(mSet)
+  mSet <- PlotPCAPairSummary(mSet, "pca_pair_0_", "png", 300, width=NA, 5)
+  mSet <- PlotPCAScree(mSet, "pca_scree_0_", "png", 300, width=NA, 5)
+  mSet <- PlotPCA2DScore(mSet, "pca_score2d_0_", "png", 300, width=NA, 1,2,0.95,show_label,0)
+  mSet <- PlotPCA3DScore(mSet, "pca_score3d_0_", "json", 1,2,3)
+  mSet <- PlotPCA3DScore(mSet, "pca_score3d_0_", "png", 1,2,3)
+  mSet <- PlotPCALoading(mSet, "pca_loading_0_", "png", 300, width=NA, 1,2)
+  mSet <- PlotPCABiplot(mSet, "pca_biplot_0_", "png", 300, width=NA, 1,2)
+  mSet <- PlotPCA3DLoading(mSet, "pca_loading3d_0_", "json", 1,2,3)
+  
+  # Save data sets
+  mSet <- SaveTransformedData(mSet)
+}
+```
+
+## PCA of interested groups
+```{r linewidth=100}
+feature.nm.vec <- c("")
+smpl.nm.vec <- c("")
+# Retain 
+grp.nm.vec <- group_order[c(2:3)]
+
+EDA_PCA(
+  dir = "../2MetaboAnalyst",
+  filename = "2Merged_annotated_POS_NEG_Exp2SE.csv",
+  QC_RSD = 25, IQR_cut_off = 0,
+  norm_method = "MedianNorm", trans_method = "LogNorm", scale_method = "ParetoNorm"
+)
+```
+
+```{r echo=FALSE, fig.height=4.6, fig.width=4.6, dpi=600}
+insert_image(
+  dir = "../2MetaboAnalyst",
+  image_name = "pca_score2d_0_dpi300.png"
+)
+```
+
+## Manual visualization - PCA
+```{r warning=FALSE, fig.height = 5, fig.width = 10}
+# From normalized and scaled data
+dir_pca = "../2MetaboAnalyst"
+
+input_pca = read.csv(
+  paste(dir_pca, "data_normalized.csv", sep = "/"),
+  row.names = 1
+)
+
+input_pca %>% 
+  dplyr::slice(-1) %>%  
+  mutate_if(is.character, as.numeric) %>% 
+  #select_if(function(col) !all(col == 0))
+  filter(rowSums(. == 0) != ncol(.)) %>% #remove 0 values across samples
+  t() %>% 
+  prcomp(scale. = FALSE) -> pca
+
+summary_pca = summary(pca)
+summary_pca$importance %>% as.data.frame() -> summary_pca
+
+### Read metadata
+metadata = read.csv(
+  paste(dir_pca, "0GAA_metadata_Exp2SE.csv", sep = "/")
+) %>% mutate(Gender = toupper(Gender))
+
+# Visualization
+Exp2SE <- as_tibble(pca$x[,1:2]) %>%
+                 mutate(Sample = names(input_pca)) %>% 
+                 inner_join(metadata,
+                            by = "Sample") %>% 
+                 mutate(Group = factor(Group, levels = c("GLUSE", "GAASE"),labels = c("SE-sGLU","SE-rGLU-GAAs"))) %>% 
+                 ggscatter(x = "PC1", y = "PC2", color = "Group", size = 1.5, star.plot = TRUE, star.plot.lwd = 0.2)+
+                 scale_color_manual(values = c("#009193", "#EB6F69"))+
+                 stat_ellipse(aes(x=PC1,y=PC2,fill=Group),geom="polygon",level=0.95, alpha=0.15)+
+                 scale_fill_manual(values = c("#009193", "#EB6F69"))+
+                 labs(x = paste("PC1 (", round(summary_pca$PC1[2]*100, 1), " %)", sep = ""), 
+                                     y = paste("PC2 (", round(summary_pca$PC2[2]*100, 1), " %)", sep = ""))+
+                 theme_bw() +
+                 theme(panel.border = element_rect(colour = "black", fill = NA, linewidth= 0.5),    
+                       panel.grid.minor = element_blank(),
+                       panel.grid.major = element_blank())+
+                 theme(panel.border = element_rect(colour = "black", fill = NA, linewidth= 0.5),    
+                       panel.grid.minor = element_blank(),
+                       panel.grid.major = element_blank())+
+                 theme(legend.text=element_text(size=16))+
+                 theme(legend.title=element_text(size=18))+
+                 theme(strip.text.x = element_text(size = 16))+
+                 theme(strip.text.y = element_text(size = 16))+
+                 theme(axis.title.y=element_text(size=18,color="black"),
+                       axis.title.x=element_text(size=18,color="black"),
+                       axis.text.y=element_text(size=16,color="black"),
+                       axis.text.x=element_text(size=16,color="black"))
+                               
+ggsave(Exp2SE,filename = "../2MetaboAnalyst/PCAplot_Exp2SE.png",width = 7.5,height = 5,device = "png")
+```
+
+# sessionInfo()
+```{r}
+sessionInfo()
+```
+
