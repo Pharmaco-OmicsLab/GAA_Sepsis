@@ -10,7 +10,7 @@ Note:
 
   - The transcriptomics folder contains code for data processing, differential expression analysis, and pathway analysis. The pipeline has been developed and customized mainly based on [`DESeq2`](https://www.bioconductor.org/packages/release/bioc/vignettes/DESeq2/inst/doc/DESeq2.html) [^1], [^2], and [`clusterProfiler`](https://yulab-smu.top/biomedical-knowledge-mining-book/)[^3] packages.
 
-  - The metabolomics folder includes code associated with data integrity check, data treatment and normalization, exploratory data analysis, differential analysis, and pathway analysis. The code has been developed and customized mainly based on [`MetaboAnalystR`](https://www.metaboanalyst.ca/docs/RTutorial.xhtml)[^4] packages.
+  - The metabolomics folder includes code associated with data integrity check, data treatment and normalization, exploratory data analysis, and differential analysis. The code has been developed and customized mainly based on [`MetaboAnalystR`](https://www.metaboanalyst.ca/docs/RTutorial.xhtml)[^4] packages.
 
 ## Contact Information
 
