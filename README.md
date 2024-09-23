@@ -1,6 +1,6 @@
 # Exploring the Effects of Glucogenic Amino Acids on the Multiomic Landscape of Sepsis
 
-This repository contains the R scripts used for the omics data analysis of the article: **Regulation of glycolysis via carbohydrates and glucogenic amino acids supply to enhance host defense against neonatal bacterial infection**. The article is published in ***Journal***. DOI: [https://doi.org/xxxx](https://doi.org/xxxx).
+This repository contains the R scripts used for the omics data analysis of the article: **Glycolysis regulation via carbohydrate and glucogenic amino acid supply enhances host defense to prevent lethal neonatal sepsis.** The article is published in ***Journal***. DOI: [https://doi.org/xxxx](https://doi.org/xxxx).
 
 [Pharmaco-Omics Lab](https://pharmomicslab.site/) maintains the repository in collaboration with the [Cellular and Molecular Pediatrics (CMP) Lab](https://ivh.ku.dk/english/research/comparative-pediatrics-and-nutrition/cellular-and-molecular-pediatrics/).
 
@@ -35,12 +35,12 @@ This repository is licensed under the [MIT License](LICENSE).
 
 If you use any part of this repository, please cite the following paper:
 
-**Authors**. (Year). **Regulation of glycolysis via carbohydrates and glucogenic amino acids supply to enhance host defense against neonatal bacterial infection.** *Journal Name*. DOI: [Link to the paper](https://doi.org/xxxx).
+**Authors**. (Year). **Glycolysis regulation via carbohydrate and glucogenic amino acid supply enhances host defense to prevent lethal neonatal sepsis.** *Journal Name*. DOI: [Link to the paper](https://doi.org/xxxx).
 
 ```bibtex
 @article{yourcitationkey,
   author = {Author1, A. and Author2, B.},
-  title = {Title of the Paper},
+  title = {Glycolysis regulation via carbohydrate and glucogenic amino acid supply enhances host defense to prevent lethal neonatal sepsis.},
   journal = {Journal Name},
   year = {Year},
   volume = {Volume},
