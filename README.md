@@ -1,10 +1,10 @@
 # Exploring the Effects of Glucogenic Amino Acids on the Multiomic Landscape of Sepsis
 
-This repository contains the R scripts used for the omics data analysis of the article: **Glycolysis regulation via carbohydrate and glucogenic amino acid supply enhances host defense to prevent lethal neonatal sepsis.** The article is published in ***Journal***. DOI: [https://doi.org/xxxx](https://doi.org/xxxx).
+This repository contains the R scripts used for the omics data analysis of the article: **Harnessing systemic glycolysis-TCA cycle axis to boost the host defense against newborn infection.** The preprint version is published in ***bioRxiv***. DOI: [10.1101/2025.04.23.650144](https://doi.org/10.1101/2025.04.23.650144).
 
 [Pharmaco-Omics Lab](https://pharmomicslab.site/) maintains the repository in collaboration with the [Cellular and Molecular Pediatrics (CMP) Lab](https://ivh.ku.dk/english/research/comparative-pediatrics-and-nutrition/cellular-and-molecular-pediatrics/).
 
-Transcriptomics data: GEO accession GSE263512 ([link](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE263512)). Metabolomics data: Available from the supplementary data of the article ([link](https://doi.org/xxxx)).
+Transcriptomics data: GEO accession GSE263512 ([link](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE263512)). Metabolomics data: Available from the supplementary data of the article ([link](https://doi.org/10.1101/2025.04.23.650144)).
 
 Note:
 
@@ -35,20 +35,8 @@ This repository is licensed under the [MIT License](LICENSE).
 
 If you use any part of this repository, please cite the following paper:
 
-**Authors**. (Year). **Glycolysis regulation via carbohydrate and glucogenic amino acid supply enhances host defense to prevent lethal neonatal sepsis.** *Journal Name*. DOI: [Link to the paper](https://doi.org/xxxx).
+Ziyuan Wu, Nguyen Tran Nam Tien, Bjorn Klabunde, Karoline Aasmul-Olsen, Simone Margaard Offersen, Nguyen Thi Hai Yen, Tik Muk, Anna Hammerich Thysen, Susanne Brix, Nicklas Brustad, Tingting Wang, Jakob Stokholm, Klaus Bonnelykke, Anders Brunse, Nguyen Phuoc Long, Bo Chawes, Ole Baek, Duc Ninh Nguyen. (2025). **Harnessing systemic glycolysis-TCA cycle axis to boost the host defense against newborn infection.** *bioRxiv*. DOI: [10.1101/2025.04.23.650144](https://doi.org/10.1101/2025.04.23.650144).
 
-```bibtex
-@article{yourcitationkey,
-  author = {Author1, A. and Author2, B.},
-  title = {Glycolysis regulation via carbohydrate and glucogenic amino acid supply enhances host defense to prevent lethal neonatal sepsis.},
-  journal = {Journal Name},
-  year = {Year},
-  volume = {Volume},
-  number = {Number},
-  pages = {Page numbers},
-  doi = {https://doi.org/xxxx},
-}
-```
 
 [^1]: **Love, M. I., Huber, W., & Anders, S.** (2014). Moderated estimation of fold change and dispersion for RNA-seq data with DESeq2. *Genome biology*, 15, 1–21. [https://doi.org/10.1186/s13059-014-0550-8](https://doi.org/10.1186/s13059-014-0550-8).
         
