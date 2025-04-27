@@ -1,4 +1,4 @@
-# Exploring the Effects of Glucogenic Amino Acids on the Multiomic Landscape of Sepsis
+# NUTRISEPSIS - NUTRItional strategies for managing SEPSIS
 
 This repository contains the R scripts used for the omics data analysis of the article: **Harnessing systemic glycolysis-TCA cycle axis to boost the host defense against newborn infection.** The preprint version is published in ***bioRxiv***. DOI: [10.1101/2025.04.23.650144](https://doi.org/10.1101/2025.04.23.650144).
 
